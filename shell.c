@@ -85,10 +85,84 @@ void check_bg_processes()
 
 void execute(char *full_command)
 {
-	char copy_command[1000];
+	char copy_command[1000],copy_2_command[1000];
 	strcpy(copy_command,full_command);
-	char *command=strtok(full_command,"\n\t ");
+	strcpy(copy_2_command,full_command);
+	int is_Background=0;
+	int input_redirect=0;
+	int output_redirect=0;//Should be 1 for overwrite and 2 for append.
+	char input_file[1000];
+	char output_file[1000];
+	char relevant_parts[1000];
+	relevant_parts[0]='\0';
+	int saved_stdout = dup(1);
+	int saved_stdin = dup(0);
+	char *text=strtok(copy_2_command,"\n\t ");
+	while(text!=NULL)
+	{
+		if(strcmp(text,"<")==0)
+		{
+			input_redirect=1;
+			int i;
+			text=strtok(NULL,"\n\t ");
+			for(i=0;text[i]!='\0';i++)
+			{
+				input_file[i]=text[i];
+			}
+			input_file[i]=text[i];
+		}
+		else if(strcmp(text,">")==0)
+		{
+			int i;
+			output_redirect=1;
+			text=strtok(NULL,"\n\t ");
+			for(i=0;text[i]!='\0';i++)
+			{
+				output_file[i]=text[i];
+			}
+			output_file[i]=text[i];
+		}
+		else if(strcmp(text,">>")==0)
+		{
+			int i;
+			output_redirect=2;
+			text=strtok(NULL,"\n\t ");
+			for(i=0;text[i]!='\0';i++)
+			{
+				output_file[i]=text[i];
+			}
+			output_file[i]=text[i];
+		}
+		else if(strcmp(text,"&")==0)
+		{
+			is_Background=1;
+		}
+		if(text!=NULL) text=strtok(NULL,"\n\t ");
+	}
 
+	if(output_redirect==1)
+	{
+		int fd1=open(output_file,O_RDWR | O_CREAT, S_IRUSR | S_IWUSR);
+		dup2(fd1,1);
+	}
+	else if(output_redirect==2)
+	{
+		int fd1=open(output_file,O_APPEND | O_CREAT,S_IRUSR | S_IWUSR);
+		dup2(fd1,1);
+	}
+
+	if(input_redirect==1)
+	{
+		int fd3=open(input_file,O_RDONLY,S_IRUSR | S_IWUSR);
+		dup2(fd3,0);
+	}
+
+	int k=0;
+	while(full_command[k]!='<' && full_command[k]!='>' && full_command[k]!='\0') k++;
+	full_command[k]='\0';
+
+	//char *command=strtok(full_command,"\n\t ");
+	char *command=strtok(full_command,"\n\t ");
 	if(strcmp(command,"exit")==0 || strcmp(command,"quit")==0)
 	{
 		exit_flag=1;
@@ -146,7 +220,7 @@ void execute(char *full_command)
 		char location[1000];
 		int show_hidden=0;
 		int show_lengthy=0;
-		while(arg!=NULL && arg[0]=='-')
+		while((arg!=NULL && arg[0]=='-'))
 		{
 			for(int i=1;i<strlen(arg);i++)
 			{
@@ -199,7 +273,7 @@ void execute(char *full_command)
 		char *time_interval;
 		unsigned long int current_time;
 		time(&current_time);
-		if(arg!=NULL && arg[0]=='-' && arg[1]=='t')
+		if((arg!=NULL && arg[0]=='-' && arg[1]=='t'))
 		{
 			time_interval=strtok(NULL,"\n\t ");
 		}
@@ -278,9 +352,14 @@ void execute(char *full_command)
 	{
 		int pid=fork();
 		int status;
-		int is_Background=0;
-		if(copy_command[strlen(copy_command)-1]=='&') is_Background=1;
-		if(pid==0)
+		/*for(int i=0;i<strlen(copy_command);i++)
+		{
+			if(copy_command[i]=='&')
+			{
+				is_Background=1;
+			}
+		}
+		*/if(pid==0)
 		{
 			char *arg=strtok(NULL,"\n\t ");
 			char *argv[100];
@@ -289,7 +368,7 @@ void execute(char *full_command)
 			while(arg!=NULL)
 			{
 				arg[strlen(arg)]='\0';
-				if(strcmp(arg,"&")!=0) argv[i]=arg;
+				if(strcmp(arg,"&")!=0 && strcmp(arg,">")!=0) argv[i]=arg;
 				i++;
 				arg=strtok(NULL,"\n\t ");
 			}
@@ -322,6 +401,10 @@ void execute(char *full_command)
 			}
 		}
 	}
+	dup2(saved_stdout, 1);
+	dup2(saved_stdin,0);
+	close(saved_stdout);
+	close(saved_stdin);
 }
 
 void parse_input(char *command)
