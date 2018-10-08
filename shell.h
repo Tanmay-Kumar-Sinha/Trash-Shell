@@ -12,14 +12,16 @@
 #include "pinfo.h"
 #include<time.h>
 #include "clock.h"
-
+#include "signal_handlers.h"
 //Structs used
 
 typedef struct 
 {
-	long int pid;
-	char command[100];
+  long int pid;
+  char command[100];
+  int finished;
 } bg_process;
+
 
 typedef struct 
 {
@@ -45,4 +47,16 @@ int num_bg_processes=0;
 bg_process bg_processes[1000];
 reminder Reminders[100];
 int num_reminders=0;
+pid_t curr_child_pid;
+char *running_command;
+
+//Functions defined.
+void check_reminders();
+void generate_prompt();
+void getinput();
+void check_bg_processes();
+void execute(char *full_command);
+void multiple_pipes(char commands[1000][1000],int num_commands);
+void pre_process(char *full_command);
+void parse_input(char *command);
 

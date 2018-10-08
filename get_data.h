@@ -8,3 +8,4 @@ unsigned long int char_to_int(char *a);
 int get_username(char username[]);
 int get_osname(char os_name[]);
 int get_curr_dir(char current_dir[]);
+int to_int(char *a);

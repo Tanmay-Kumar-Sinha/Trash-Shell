@@ -17,6 +17,23 @@ unsigned long int power(unsigned long int x,unsigned long int y)
 	}
 }
 
+int to_int(char *a)
+{
+	int digits[100];
+	int i=0;
+	while(a[i]!='\0')
+	{
+		digits[i]=a[i]-'0';
+		i++;
+	}
+	int answer=0;
+	for(int j=i-1;j>=0;j--)
+	{
+		answer+=digits[j]*power(10,i-j-1);
+	}
+	return answer;
+}
+
 char to_char(int a)
 {
 	if(a==0) return '0';

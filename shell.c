@@ -1,5 +1,16 @@
 #include "shell.h"
 
+void handle_sigstop(int signo)
+{
+	bg_processes[num_bg_processes].finished=0;
+	bg_processes[num_bg_processes].pid=curr_child_pid;
+	strcpy(bg_processes[num_bg_processes].command,running_command);
+	strcpy(running_command,"\0");
+	num_bg_processes++;
+  if(curr_child_pid!=0) kill(curr_child_pid,SIGSTOP);
+	curr_child_pid=0;
+}
+
 void check_reminders()
 {
 	if(num_reminders==0) return;
@@ -12,6 +23,56 @@ void check_reminders()
 		{
 			printf("%s\n", Reminders[i].message);
 			Reminders[i].toprint=0;
+		}
+	}
+}
+
+void list_jobs(bg_process processes[],int num)
+{
+  int num_printed=1;
+  for(int i=0;i<num;i++)
+  {
+    if(processes[i].finished==0)
+    {
+      printf("[%d]", num_printed);
+      num_printed++;
+      char pid_string[100];
+      int pid_int=processes[i].pid;
+      int j=0;
+      while(pid_int>0)
+			{
+				pid_string[j]=(to_char(pid_int%10));
+				j++;
+				pid_int=pid_int/10;
+			}
+			char pid_string2[100];
+			for(int k=j-1;k>=0;k--) pid_string2[j-k-1]=pid_string[k];
+			pid_string2[j]='\0';
+			char dest[100];
+			dest[0]='/';
+			dest[1]='p';
+			dest[2]='r';
+			dest[3]='o';
+			dest[4]='c';
+			dest[5]='/';
+			dest[6]='\0';
+			strcat(dest,pid_string2);
+			int fd=open(strcat(dest,"/status"),O_RDONLY);
+			char proc_info[1000];
+			read(fd,proc_info,1000);
+			for(int k=0;k<strlen(proc_info)-1;k++)
+			{
+				if(k!=0 && proc_info[k]=='S' && proc_info[k-1]=='\n' && proc_info[k+1]=='t')
+				{
+					k+=6;
+					while(proc_info[k]!='\n')
+					{
+						printf("%c", proc_info[k]);
+						k++;
+					}
+    		}
+  		}
+  		printf("\t%s [%ld]\n",processes[i].command,processes[i].pid);
 		}
 	}
 }
@@ -77,6 +138,7 @@ void check_bg_processes()
 			if(bg_processes[i].pid==wpid)
 			{
 				printf("%s with pid %d exited normally\n",bg_processes[i].command,wpid);
+				bg_processes[i].finished=1;
 			}
 		}
 		wpid=waitpid(-1,&status,WNOHANG);
@@ -97,7 +159,9 @@ void execute(char *full_command)
 	relevant_parts[0]='\0';
 	int saved_stdout = dup(1);
 	int saved_stdin = dup(0);
+
 	char *text=strtok(copy_2_command,"\n\t ");
+
 	while(text!=NULL)
 	{
 		if(strcmp(text,"<")==0)
@@ -144,17 +208,20 @@ void execute(char *full_command)
 	{
 		int fd1=open(output_file,O_RDWR | O_CREAT, S_IRUSR | S_IWUSR);
 		dup2(fd1,1);
+		close(fd1);
 	}
 	else if(output_redirect==2)
 	{
-		int fd1=open(output_file,O_APPEND | O_CREAT,S_IRUSR | S_IWUSR);
+		int fd1=open(output_file,O_RDWR | O_APPEND | O_CREAT,S_IRUSR | S_IWUSR);
 		dup2(fd1,1);
+		close(fd1);
 	}
 
 	if(input_redirect==1)
 	{
 		int fd3=open(input_file,O_RDONLY,S_IRUSR | S_IWUSR);
 		dup2(fd3,0);
+		close(fd3);
 	}
 
 	int k=0;
@@ -168,10 +235,154 @@ void execute(char *full_command)
 		exit_flag=1;
 	}
 
+	else if(strcmp(command,"setenv")==0)
+	{
+		char *variable_name=strtok(NULL,"\n\t ");
+		char *variable_value=strtok(NULL,"\n\t ");
+		if(variable_value!=NULL)
+		{
+			char *arg=strtok(NULL,"\n\t ");
+			if(arg!=NULL)
+			{
+				perror("Error: setenv only takes two arguments.");
+			}
+			else
+			{
+				setenv(variable_name,variable_value,1);
+			}
+		}
+		else
+		{
+			setenv(variable_name,"",1);
+		}
+	}
+
+	else if(strcmp(command,"unsetenv")==0)
+	{
+		char *arg=strtok(NULL,"\n\t ");
+		if(arg==NULL)
+		{
+			perror("Error: unsetenv requires atleast one argument.");
+		}
+		else
+		{
+			while(arg!=NULL)
+			{
+				unsetenv(arg);
+				arg=strtok(NULL,"\n\t ");
+			}
+		}
+	}
+
 	else if(strcmp(command,"pwd")==0)
 	{
 		char *name;
 		printf("%s\n", getcwd(curr_dir,100));
+	}
+
+	else if(strcmp(command,"jobs")==0)
+	{
+		list_jobs(bg_processes,num_bg_processes);
+	}
+
+	else if(strcmp(command,"kjob")==0)
+	{
+		char *jobid=strtok(NULL,"\n\t ");
+		if(jobid==NULL)
+		{
+			perror("Usage: kjob <jobNumber> <signal>");
+		}
+		else
+		{
+			char *signal=strtok(NULL,"\n\t ");
+			if(signal==NULL)
+			{
+				perror("Usage: kjob <jobNumber> <signal>");
+			}
+			else
+			{
+				int job_id=to_int(jobid);
+				int sig=to_int(signal);
+				int i=0;
+				int j=0;
+				while(job_id!=i && j<num_bg_processes)
+				{
+					if(bg_processes[j].finished!=1)
+					{
+						i++;
+					}
+					j++;
+				}
+				kill(bg_processes[j-1].pid,sig);
+			}
+		}
+	}
+
+	else if(strcmp(command,"overkill")==0)
+	{
+		for(int i=0;i<num_bg_processes;i++)
+		{
+			if(bg_processes[i].finished!=1)
+			{
+				kill(bg_processes[i].pid,9);
+			}
+		}
+	}
+
+	else if(strcmp(command,"fg")==0)
+	{
+		char *arg=strtok(NULL,"\n\t ");
+		if(arg==NULL)
+		{
+			perror("Usage: fg <jobNumber>");
+		}
+		else
+		{
+			int job_id=to_int(arg);
+			int i=0;
+			int j=0;
+			while(i!=job_id && j<num_bg_processes)
+			{
+				if(bg_processes[j].finished!=1)
+				{
+					i++;
+				}
+				j++;
+			}
+			j--;
+			if(i!=job_id)
+			{
+				perror("Error");
+			}
+			else
+			{
+				pid_t pid=bg_processes[j].pid;
+				int status;
+				kill(pid,18);
+				curr_child_pid=pid;
+				waitpid(pid,&status,WUNTRACED);
+				bg_processes[j].finished=1;
+			}
+		}
+	}
+
+	else if(strcmp(command,"bg")==0)
+	{
+		char *arg=strtok(NULL,"\n\t ");
+		if(arg==NULL)
+		{
+			perror("Usage: bg <jobNumber>");
+		}
+		else
+		{
+			char new_command[100];
+			strcpy(new_command,"kjob ");
+			strcat(new_command,arg);
+			strcat(new_command," 18");
+			char *this_command=(char*)malloc(100*sizeof(char));
+			strcpy(this_command,new_command);
+			execute(this_command);
+		}
 	}
 
 	else if(strcmp(command,"cd")==0)
@@ -210,7 +421,7 @@ void execute(char *full_command)
 		{
 			printf("%s ", arg);
 			arg=strtok(NULL,"\n\t ");
-		}
+		}	
 		printf("\n");
 	}
 
@@ -279,7 +490,7 @@ void execute(char *full_command)
 		}
 		else
 		{
-			printf("Error in format: please specify time interval using the -t flag\n");
+			perror("Error in format: please specify time interval using the -t flag\n");
 			return;
 		}
 		unsigned long int final_time;
@@ -350,16 +561,10 @@ void execute(char *full_command)
 
 	else
 	{
-		int pid=fork();
+		strcpy(running_command,command);
+		curr_child_pid=fork();
 		int status;
-		/*for(int i=0;i<strlen(copy_command);i++)
-		{
-			if(copy_command[i]=='&')
-			{
-				is_Background=1;
-			}
-		}
-		*/if(pid==0)
+		if(curr_child_pid==0)
 		{
 			char *arg=strtok(NULL,"\n\t ");
 			char *argv[100];
@@ -376,7 +581,7 @@ void execute(char *full_command)
 			int possible=execvp(command,argv);
 			if(possible==-1)
 			{
-				printf("%s is not a valid option.\n", command);
+				perror("Invalid option.");
 				exit(0);
 			}
 		}
@@ -384,11 +589,13 @@ void execute(char *full_command)
 		{
 			if(is_Background!=1) 
 			{
-				wait(NULL);
+        int status;
+				waitpid(curr_child_pid,&status,WUNTRACED);
+				curr_child_pid=0;
 			}
 			else
 			{
-				bg_processes[num_bg_processes].pid=pid;
+				bg_processes[num_bg_processes].pid=curr_child_pid;
 				//strcpy(bg_processes[num_bg_processes].command,copy_command);
 				int j=0;
 				while(copy_command[j]!='\t' && copy_command[j]!=' ' && copy_command[j]!='\0')
@@ -397,6 +604,7 @@ void execute(char *full_command)
 					j++;
 				}
 				bg_processes[num_bg_processes].command[j]='\0';
+				bg_processes[num_bg_processes].finished=0;
 				num_bg_processes++;
 			}
 		}
@@ -407,6 +615,62 @@ void execute(char *full_command)
 	close(saved_stdin);
 }
 
+void multiple_pipes(char commands[1000][1000],int num_commands)
+{
+	int p[2];
+	int fd_in=0;
+	int i=0;
+	while(i!=num_commands)
+	{
+		pipe(p);
+		if(fork()==0)
+		{
+			dup2(fd_in,0);
+			if(i+1!=num_commands)
+			{
+				dup2(p[1],1);
+			}
+			close(p[0]);
+			execute(commands[i]);
+			exit(0);
+		}
+		else
+		{
+			wait(NULL);
+			close(p[1]);
+			fd_in=p[0];
+			i++;
+		}
+	}
+}
+
+void pre_process(char *full_command)
+{
+	char copy[1000];
+  strcpy(copy,full_command);
+  int num_commands=0;
+  char commands[1000][1000];//Stores the series of commands to be used in pipe.
+  char *command=strtok(full_command,"|");
+  int saved_stdin=dup(0);
+  int saved_stdout=dup(1);
+  while(command!=NULL)
+  {
+  	strcpy(commands[num_commands],command);
+  	command=strtok(NULL,"|");
+  	num_commands++;
+  }
+  if(num_commands==1)
+  {
+  	execute(commands[0]);
+  }
+  else
+  {
+  	multiple_pipes(commands,num_commands);
+  }
+  dup2(saved_stdout,1);
+  dup2(saved_stdin,0);
+}
+
 void parse_input(char *command)
 {
 	char copy[1000];
@@ -415,7 +679,7 @@ void parse_input(char *command)
 	int times=0;
 	while(token!=NULL)
 	{
-		execute(token);
+		pre_process(token);
 		times++;
 		strcpy(command,copy);
 		token=strtok(command,";\n");
@@ -430,22 +694,22 @@ void parse_input(char *command)
 
 int main()
 {
+	running_command=(char*)malloc(100*sizeof(char));
+	curr_child_pid=0;
+	strcpy(running_command,"\0");
+	signal(SIGINT,handle_sigint);
+	signal(SIGTSTP,handle_sigstop);
+	signal(SIGSTOP,handle_sigstop);
 	//Getting the username.
-	
 	len_username = get_username(username);
-
-
 	//Getting os name.
-
 	len_osname = get_osname(os_name);
 	// Obtaining the home directory.
-
 	len_home=get_curr_dir(home);
 	get_curr_dir(curr_dir);
 	while(exit_flag==0)
 	{
 		generate_prompt();
-//		printf("%s> ", prompt);
 		getinput();
 		parse_input(command);
 	}
